@@ -1,1 +1,0 @@
-"""Mimecast Plugin Package."""
