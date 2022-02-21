@@ -317,7 +317,7 @@ class CrowdStrikePlugin(PluginBase):
         query_params = {}
         ioc_types = []
         if threat_type == "Both":
-            ioc_types = ["hash_md5", "md5","hash_sha256", "sha256", "domain"]
+            ioc_types = ["hash_md5", "md5", "hash_sha256", "sha256", "domain"]
         elif threat_type == "Malware":
             ioc_types = [
                 "hash_md5",
