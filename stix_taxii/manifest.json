@@ -1,7 +1,7 @@
 {
   "name": "STIX/TAXII Plugin",
   "id": "stix_taxii",
-  "version": "2.0.0",
+  "version": "3.0.0",
   "description": "The STIX/TAXII plugin polls TAXII feeds and extracts observables from them. This plugin does not support sharing of indicators to TAXII feeds.",
   "patch_supported": false,
   "push_supported": false,
@@ -25,15 +25,16 @@
         }
       ],
       "mandatory": true,
+      "description": "STIX/TAXII Version.",
       "default": "1"
     },
     {
-      "label": "Discovery URL",
+      "label": "Discovery URL / API Root URL",
       "key": "discovery_url",
       "type": "text",
       "default": "",
       "mandatory": true,
-      "description": "Discovery/Feed url of TAXII server."
+      "description": "Discovery/Feed URL of TAXII server for version 1 and API Root URL for version 2."
     },
     {
       "label": "Username",
@@ -55,7 +56,25 @@
       "type": "text",
       "default": "",
       "mandatory": false,
-      "description": "Collections (CSV) from which data need to fetch. Leave empty to fetch data from all of the collections."
+      "description": "Collections (CSV) from which data needs to be fetched. Leave empty to fetch data from all of the collections."
+    },
+    {
+      "label": "Pagination Method",
+      "key": "pagination_method",
+      "description": "Pagination Method to use while pulling the indicators. Contact your STIX/TAXII support to choose the appropriate option.",
+      "type": "choice",
+      "choices": [
+        {
+          "key": "Next",
+          "value": "next"
+        },
+        {
+          "key": "X-TAXII-Date-Added-Last",
+          "value": "last_added_date"
+        }
+      ],
+      "mandatory": true,
+      "default": "next"
     },
     {
       "label": "Initial Range (in days)",
@@ -64,6 +83,13 @@
       "mandatory": true,
       "default": 7,
       "description": "Number of days to pull the data for the initial run."
+    },
+    {
+      "label": "Look Back (in minutes)",
+      "key": "delay",
+      "type": "number",
+      "mandatory": false,
+      "description": "Number of minutes to backdate the start time for pulling the data. Valid value is anything between 0 to 1440."
     },
     {
       "label": "Type of Threat data to pull",
@@ -113,9 +139,15 @@
           "value": "critical"
         }
       ],
-      "default": ["critical", "high", "medium", "low", "unknown"],
+      "default": [
+        "critical",
+        "high",
+        "medium",
+        "low",
+        "unknown"
+      ],
       "mandatory": false,
-      "description": "Only indicators with matching severity will be saved."
+      "description": "Only indicators with matching severity will be saved. For STIX/TAXII version 2.0 and 2.1, Unknown should be selected because for all the indicators fetched from these versions would have Unknown severity."
     },
     {
       "label": "Reputation",

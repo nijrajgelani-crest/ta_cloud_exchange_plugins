@@ -30,12 +30,15 @@ OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 """
 
-"""Netskope CRE plugin."""
+"""Netskope URE plugin."""
 
 
+import json
 from typing import List, Dict
 
 import requests
+from os.path import join
+import tempfile
 from requests.exceptions import ConnectionError
 
 from netskope.common.utils import add_user_agent
@@ -48,6 +51,10 @@ from netskope.integrations.cre.models import (
     Action,
 )
 
+PAGE_SIZE = 1000
+SCORE_FILE = "proofpoint_scores.json"
+PLUGIN_NAME = "Proofpoint URE Plugin"
+
 
 class ProofpointPlugin(PluginBase):
     """Proofpoint plugin implementation."""
@@ -56,109 +63,88 @@ class ProofpointPlugin(PluginBase):
         """Fetch list of users."""
         USERS_URL = self.configuration.get("proofpoint_url").strip()
         offset = 1
-        SIZE = 3
         res = []
-        while True:
-            users = requests.get(
-                f"{USERS_URL}/v2/people/vap",
-                auth=(
-                    self.configuration.get("proofpoint_username").strip(),
-                    self.configuration.get("proofpoint_password").strip(),
-                ),
-                params={
-                    "window": self.configuration.get("window"),
-                    "page": offset,
-                    "size": SIZE,
-                },
-                proxies=self.proxy,
-                headers=add_user_agent(),
-            )
-            users_resp_json = self.handle_error(users)
-            errors = users_resp_json.get("errors")
+        with open(join(tempfile.gettempdir(), SCORE_FILE), "w") as score_file:
+            while True:
+                users = requests.get(
+                    f"{USERS_URL}/v2/people/vap",
+                    auth=(
+                        self.configuration.get("proofpoint_username").strip(),
+                        self.configuration.get("proofpoint_password").strip(),
+                    ),
+                    params={
+                        "window": self.configuration.get("window"),
+                        "page": offset,
+                        "size": PAGE_SIZE,
+                    },
+                    proxies=self.proxy,
+                    headers=add_user_agent(),
+                )
+                users_resp_json = self.handle_error(users)
+                errors = users_resp_json.get("errors")
 
-            if errors:
-                err_msg = errors[0].get("message", "")
+                if errors:
+                    err_msg = errors[0].get("message", "")
 
-                self.logger.error(
-                    "Plugin: Proofpoint CRE Unable to Fetch Users, "
-                    f"Error: {err_msg}"
-                )
-                self.logger.error(
-                    "Plugin: Proofpoint CRE Unable to Fetch Users, "
-                    f"Error: {err_msg}"
-                )
-                raise requests.HTTPError(
-                    f"Plugin: Proofpoint CRE Unable to Fetch Users, "
-                    f"Error: {err_msg}"
-                )
-            self.logger.info("Proofpoint CRE: Processing users.")
-            users = users_resp_json["users"]
-            for user in users:
-                res.append(
-                    Record(
-                        uid=user["identity"]["emails"][0],
-                        type=RecordType.USER,
-                        score=None,
+                    self.logger.error(
+                        f"{PLUGIN_NAME}: Unable to Fetch Users, "
+                        f"Error: {err_msg}"
                     )
-                )
-            offset += 1
-            if len(users) < SIZE:
-                break
+                    self.logger.error(
+                        f"{PLUGIN_NAME}: Unable to Fetch Users, "
+                        f"Error: {err_msg}"
+                    )
+                    raise requests.HTTPError(
+                        f"{PLUGIN_NAME}: Unable to Fetch Users, "
+                        f"Error: {err_msg}"
+                    )
+                self.logger.info(f"{PLUGIN_NAME}: Processing users.")
+                users = users_resp_json["users"]
+                for user in users:
+                    res.append(
+                        Record(
+                            uid=user["identity"]["emails"][0],
+                            type=RecordType.USER,
+                            score=None,
+                        )
+                    )
+                offset += 1
+                score_file.write(f"{json.dumps(users_resp_json)}\n")
+                if len(users) < PAGE_SIZE:
+                    break
         return res
 
     def fetch_scores(self, res):
         """Fetch user scores."""
-        USERS_URL = self.configuration.get("proofpoint_url").strip()
         scored_users = []
         score_users = {}
-        offset = 1
-        SIZE = 3
-        while True:
-            proofpoint_fetch_users = requests.get(
-                f"{USERS_URL}/v2/people/vap",
-                auth=(
-                    self.configuration.get("proofpoint_username").strip(),
-                    self.configuration.get("proofpoint_password").strip(),
-                ),
-                params={
-                    "window": self.configuration.get("window"),
-                    "page": offset,
-                    "size": SIZE,
-                },
-                proxies=self.proxy,
-                headers=add_user_agent(),
+        try:
+            with open(
+                join(tempfile.gettempdir(), SCORE_FILE), "r"
+            ) as score_file:
+                for line in score_file:
+                    line = line.strip()
+                    if not line:
+                        continue
+                    try:
+                        data = json.loads(line)
+                        users = data["users"]
+                        for user in users:
+                            for re in res:
+                                if user["identity"]["emails"][0] in re.uid:
+                                    score_users[
+                                        user["identity"]["emails"][0]
+                                    ] = user["threatStatistics"]["attackIndex"]
+                    except json.JSONDecodeError:
+                        self.logger.warn(
+                            f"{PLUGIN_NAME}: Unable to fetch scores, "
+                            "could not parse a line."
+                        )
+        except FileNotFoundError:
+            self.logger.warn(
+                f"{PLUGIN_NAME}: Unable to fetch scores, "
+                f"score file does not exist."
             )
-            proofpoint_fetch_users.raise_for_status()
-            users_resp_json = self.handle_error(proofpoint_fetch_users)
-            errors = users_resp_json.get("errors")
-
-            if errors:
-                err_msg = errors[0].get("message", "")
-
-                self.logger.error(
-                    "Plugin: Proofpoint CRE Unable to Fetch Scores, "
-                    f"Error: {err_msg}"
-                )
-                self.logger.error(
-                    "Plugin: Proofpoint CRE Unable to Fetch Scores, "
-                    f"Error: {err_msg}"
-                )
-                raise requests.HTTPError(
-                    f"Plugin: Proofpoint CRE Unable to Fetch Scores, "
-                    f"Error: {err_msg}"
-                )
-
-            self.logger.info("Proofpoint CRE: processing scores.")
-            users = users_resp_json["users"]
-            for user in users:
-                for re in res:
-                    if user["identity"]["emails"][0] in re.uid:
-                        score_users[user["identity"]["emails"][0]] = user[
-                            "threatStatistics"
-                        ]["attackIndex"]
-            offset += 1
-            if len(users) < SIZE:
-                break
         if score_users:
             all_values = score_users.values()
             minvalue = min(all_values)
@@ -171,7 +157,7 @@ class ProofpointPlugin(PluginBase):
                     Record(uid=key, type=RecordType.USER, score=score)
                 )
             self.logger.info(
-                f"Proofpoint CRE: processing scores and normalizing for min value {minvalue} and "
+                f"{PLUGIN_NAME}: processing scores and normalizing for min value {minvalue} and "
                 f"max value {maxvalue}."
             )
         return scored_users
@@ -184,9 +170,10 @@ class ProofpointPlugin(PluginBase):
 
     def validate(self, configuration: Dict):
         """Validate Netskope configuration."""
+
         if "proofpoint_url" not in configuration:
             self.logger.error(
-                "Proofpoint CRE: Invalid proofpoint configurations, URL required."
+                f"{PLUGIN_NAME}: Invalid proofpoint configurations, URL required."
             )
             return ValidationResult(
                 success=False, message="Proofpoint URL not provided."
@@ -194,7 +181,7 @@ class ProofpointPlugin(PluginBase):
 
         if "proofpoint_username" not in configuration:
             self.logger.error(
-                "Proofpoint CRE: Invalid proofpoint configurations, username required."
+                f"{PLUGIN_NAME}: Invalid proofpoint configurations, username required."
             )
             return ValidationResult(
                 success=False,
@@ -203,7 +190,7 @@ class ProofpointPlugin(PluginBase):
 
         if "proofpoint_password" not in configuration:
             self.logger.error(
-                "Proofpoint CRE: Invalid proofpoint configurations, password required."
+                f"{PLUGIN_NAME}: Invalid proofpoint configurations, password required."
             )
             return ValidationResult(
                 success=False,
@@ -212,7 +199,7 @@ class ProofpointPlugin(PluginBase):
 
         if "window" not in configuration:
             self.logger.error(
-                "Proofpoint CRE: Invalid proofpoint configurations, window required."
+                f"{PLUGIN_NAME}: Invalid proofpoint configurations, window required."
             )
             return ValidationResult(
                 success=False, message="Proofpoint window not provided."
@@ -243,7 +230,7 @@ class ProofpointPlugin(PluginBase):
                     message=f"Error occurred while validating Proofpoint details. {groups.json().get('description')}",
                 )
             self.logger.error(
-                f"Proofpoint CRE: Could not validate Proofpoint details. "
+                f"{PLUGIN_NAME}: Could not validate Proofpoint details. "
                 f"Status code: {groups.status_code}, Response: {groups.text}"
             )
             return ValidationResult(
@@ -287,56 +274,54 @@ class ProofpointPlugin(PluginBase):
                 return resp.json()
             except ValueError:
                 self.notifier.error(
-                    "Plugin: Proofpoint CRE,"
+                    f"{PLUGIN_NAME}: "
                     "Exception occurred while parsing JSON response."
                 )
                 self.logger.error(
-                    "Plugin: Proofpoint CRE, "
+                    f"{PLUGIN_NAME}: "
                     "Exception occurred while parsing JSON response."
                 )
         elif resp.status_code == 401:
             self.notifier.error(
-                "Plugin: Proofpoint CRE, "
+                f"{PLUGIN_NAME}: "
                 "Received exit code 401, Authentication Error"
             )
             self.logger.error(
-                "Plugin: Proofpoint CRE, "
+                f"{PLUGIN_NAME}: "
                 "Received exit code 401, Authentication Error"
             )
         elif resp.status_code == 403:
             self.notifier.error(
-                "Plugin: Proofpoint CRE, "
-                "Received exit code 403, Forbidden User"
+                f"{PLUGIN_NAME}: Received exit code 403, Forbidden User"
             )
             self.logger.error(
-                "Plugin: Proofpoint CRE, "
-                "Received exit code 403, Forbidden User"
+                f"{PLUGIN_NAME}: Received exit code 403, Forbidden User"
             )
         elif resp.status_code >= 400 and resp.status_code < 500:
             self.notifier.error(
-                f"Plugin: Proofpoint CRE, "
+                f"{PLUGIN_NAME}: "
                 f"Received exit code {resp.status_code}, HTTP client Error"
             )
             self.logger.error(
-                f"Plugin: Proofpoint CRE, "
+                f"{PLUGIN_NAME}: "
                 f"Received exit code {resp.status_code}, HTTP client Error"
             )
         elif resp.status_code >= 500 and resp.status_code < 600:
             self.notifier.error(
-                f"Plugin: Proofpoint CRE, "
+                f"{PLUGIN_NAME}: "
                 f"Received exit code {resp.status_code}, HTTP server Error"
             )
             self.logger.error(
-                f"Plugin: Proofpoint CRE, "
+                f"{PLUGIN_NAME}: "
                 f"Received exit code {resp.status_code}, HTTP server Error"
             )
         else:
             self.notifier.error(
-                f"Plugin: Proofpoint CRE, "
+                f"{PLUGIN_NAME}: "
                 f"Received exit code {resp.status_code}, HTTP Error"
             )
             self.logger.error(
-                f"Plugin: Proofpoint CRE, "
+                f"{PLUGIN_NAME}: "
                 f"Received exit code {resp.status_code}, HTTP Error"
             )
         resp.raise_for_status()

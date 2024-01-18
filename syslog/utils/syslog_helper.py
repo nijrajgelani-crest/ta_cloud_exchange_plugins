@@ -34,10 +34,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 
 from jsonschema import validate
-
-from .syslog_exceptions import (
-    MappingValidationError,
-)
+from .syslog_exceptions import MappingValidationError
 from jsonschema.exceptions import ValidationError as JsonSchemaValidationError
 
 
@@ -52,8 +49,9 @@ def validate_extension(instance):
     validate(instance=instance, schema=schema)
 
 
-def validate_header_extension_subdict(instance):
-    """Validate sub dict of header and extension having fields "mapping" and "default".
+def validate_header_extension_subdict(instance, name):
+    """Validate sub dict of header and extension
+    having fields "mapping" and "default".
 
     Args:
         instance: JSON instance to be validated
@@ -89,7 +87,7 @@ def validate_header_extension_subdict(instance):
         )
 
 
-def validate_header(instance):
+def validate_header(instance, name):
     """Define JSON schema for validating mapped syslog header fields.
 
     Args:
@@ -98,11 +96,12 @@ def validate_header(instance):
     properties_schema = {
         "default_value": {"type": "string"},
         "mapping_field": {"type": "string"},
-        "transformation": {"type": "string"}
+        "transformation": {"type": "string"},
     }
 
     one_of_sub_schema = [
-        # both empty are not allowed. So schema will be: one of (one of (both), both)
+        # both empty are not allowed.
+        # So schema will be: one of (one of (both), both)
         {
             "oneOf": [
                 {"required": ["mapping_field"]},
@@ -139,12 +138,13 @@ def validate_header(instance):
 
     validate(instance=instance, schema=schema)
 
-    # After validating schema, validate the "mapping" and "default" fields for each header fields
+    # After validating schema, validate the "mapping"
+    # and "default" fields for each header fields
     for field in instance:
-        validate_header_extension_subdict(instance[field])
+        validate_header_extension_subdict(instance[field], name)
 
 
-def validate_extension_field(instance):
+def validate_extension_field(instance, name):
     """Define JSON schema for validating each extension fields.
 
     Args:
@@ -160,7 +160,9 @@ def validate_extension_field(instance):
         },
         "minProperties": 0,
         "maxProperties": 4,
-        "oneOf": [  # both empty are not allowed. So schema will be: one of (one of (both), both)
+        "oneOf": [
+            # both empty are not allowed.
+            # So schema will be: one of (one of (both), both)
             {
                 "oneOf": [
                     {"required": ["mapping_field"]},
@@ -177,14 +179,16 @@ def validate_extension_field(instance):
     }
 
     validate(instance=instance, schema=schema)
-    validate_header_extension_subdict(instance)
+    validate_header_extension_subdict(instance, name)
 
 
-def get_syslog_mappings(mappings, data_type):
-    """Read mapping json and return the dict of mappings to be applied to raw_data.
+def get_syslog_mappings(mappings, data_type, name):
+    """Read mapping json and return the dict of mappings
+    to be applied to raw_data.
 
     Args:
-        data_type (str): Data type (alert/event) for which the mappings are to be fetched
+        data_type (str): Data type (alert/event) for which
+        the mappings are to be fetched
         mappings: Attribute mapping json string
 
     Returns:
@@ -192,15 +196,22 @@ def get_syslog_mappings(mappings, data_type):
     """
     data_type_specific_mapping = mappings["taxonomy"][data_type]
 
+    if data_type == "json":
+        return (
+            mappings["delimiter"],
+            mappings["cef_version"],
+            mappings["taxonomy"],
+        )
+
     # Validate the headers of each mapped subtype
     for subtype, subtype_map in data_type_specific_mapping.items():
         subtype_header = subtype_map["header"]
         try:
-            validate_header(subtype_header)
+            validate_header(subtype_header, name)
         except JsonSchemaValidationError as err:
             raise MappingValidationError(
-                'Error occurred while validating syslog header for type "{}". '
-                "Error: {}".format(subtype, err)
+                "Error occurred while validating syslog header "
+                'for type "{}" Error: {}'.format(subtype, err)
             )
 
     # Validate the extension for each mapped subtype
@@ -210,28 +221,32 @@ def get_syslog_mappings(mappings, data_type):
             validate_extension(subtype_extension)
         except JsonSchemaValidationError as err:
             raise MappingValidationError(
-                'Error occurred while validating syslog extension for type "{}". '
-                "Error: {}".format(subtype, err)
+                "Error occurred while validating syslog extension "
+                'for type "{}". Error: {}'.format(subtype, err)
             )
 
         # Validate each extension
         for cef_field, ext_dict in subtype_extension.items():
             try:
-                validate_extension_field(ext_dict)
+                validate_extension_field(ext_dict, name)
             except JsonSchemaValidationError as err:
                 raise MappingValidationError(
-                    'Error occurred while validating syslog extension field "{}" for '
-                    'type "{}". Error: {}'.format(cef_field, subtype, err)
+                    "Error occurred while validating syslog extension "
+                    'field "{}" for type "{}". Error: {}'.format(
+                        cef_field, subtype, err
+                    )
                 )
 
     return mappings["delimiter"], mappings["cef_version"], mappings["taxonomy"]
 
 
 def extract_subtypes(mappings, data_type):
-    """Extract subtypes of given data types. e.g: for data type "alert", possible subtypes are "dlp", "policy" etc.
+    """Extract subtypes of given data types. e.g: for data type "alert",
+    possible subtypes are "dlp", "policy" etc.
 
     Args:
-        data_type (str): Data type (alert/event) for which the mappings are to be fetched
+        data_type (str): Data type (alert/event) for which
+        the mappings are to be fetched
         mappings: Attribute mapping json string
 
     Returns:

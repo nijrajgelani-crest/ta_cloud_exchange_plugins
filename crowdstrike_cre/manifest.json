@@ -1,11 +1,11 @@
 {
     "name": "CrowdStrike",
-    "description": "Fetch ZTA scores from your CrowdStrike tenant.",
+    "description": "Fetch ZTA scores from your CrowdStrike tenant. \n\n URE score calculation => CrowdStrike host assessment overall score * 10.",
     "id": "crowdstrike_cre",
     "type": [
         "host"
     ],
-    "version": "1.1.0",
+    "version": "1.2.0",
     "configuration": [
         {
             "label": "Base URL",
@@ -31,7 +31,7 @@
             ],
             "default": "https://api.crowdstrike.com",
             "mandatory": true,
-            "description": "API Base URL."
+            "description": "Base URL of CrowdStrike instance. e.g. https://api.crowdstrike.com"
         },
         {
             "label": "Client ID",
@@ -39,7 +39,7 @@
             "type": "text",
             "default": "",
             "mandatory": true,
-            "description": "API Client ID."
+            "description": "Client ID generated from the CrowdStrike platform."
         },
         {
             "label": "Client Secret",
@@ -47,15 +47,15 @@
             "type": "password",
             "default": "",
             "mandatory": true,
-            "description": "API Client Secret."
+            "description": "Client Secret generated from the CrowdStrike platform."
         },
         {
-            "label": "Minimum Score",
-            "key": "minimum_score",
+            "label": "Maximum Score",
+            "key": "maximum_score",
             "type": "number",
             "default": 200,
             "mandatory": true,
-            "description": "Only the hosts with score greater than the minimum score will be tracked."
+            "description": "Only the host(s) with score less than or equal to the Maximum Score will be tracked."
         }
     ]
 }

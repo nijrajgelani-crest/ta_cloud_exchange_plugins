@@ -42,10 +42,11 @@ from jsonschema.exceptions import ValidationError as JsonSchemaValidationError
 class QRadarValidator(object):
     """QRadar validator class."""
 
-    def __init__(self, logger):
+    def __init__(self, logger, log_prefix):
         """Initialize."""
         super().__init__()
         self.logger = logger
+        self.log_prefix = log_prefix
 
     def validate_qradar_port(self, qradar_port):
         """Validate qradar port.
@@ -54,7 +55,8 @@ class QRadarValidator(object):
             qradar_port: the qradar port to be validated
 
         Returns:
-            Whether the provided value is valid or not. True in case of valid value, False otherwise
+            Whether the provided value is valid or not.
+            True in case of valid value, False otherwise
         """
         if qradar_port or qradar_port == 0:
             try:
@@ -83,6 +85,31 @@ class QRadarValidator(object):
                 "extension": {"type": "object", "minProperties": 0},
             },
             "required": ["header", "extension"],
+        }
+
+        validate(instance=instance, schema=schema)
+
+    def validate_json(self, instance):
+        """Validate the schema of given taxonomy JSON.
+
+        Args:
+            instance: The JSON object to be validated
+
+        Returns:
+            True if the schema is valid, False otherwise
+        """
+        schema = {
+            "type": "object",
+            "patternProperties": {
+                ".*": {
+                    "type": "object",
+                    "patternProperties": {
+                        ".*": {
+                            "type": "array",
+                        }
+                    },
+                },
+            },
         }
 
         validate(instance=instance, schema=schema)
@@ -118,23 +145,30 @@ class QRadarValidator(object):
             validate(instance=mappings, schema=schema)
         except JsonSchemaValidationError as err:
             self.logger.error(
-                "QRadar Plugin: Validation error occurred. Error: "
-                "validating JSON schema: {}".format(err)
+                "{}: Validation error occurred. "
+                "Error: validating JSON schema: {}".format(
+                    self.log_prefix, err
+                )
             )
             return False
 
         # Validate the schema of all taxonomy
         for data_type, dtype_taxonomy in mappings["taxonomy"].items():
-            for subtype, subtype_taxonomy in dtype_taxonomy.items():
-                try:
-                    self.validate_taxonomy(subtype_taxonomy)
-                except JsonSchemaValidationError as err:
-                    self.logger.error(
-                        "QRadar Plugin: Validation error occurred. Error: "
-                        'while validating JSON schema for type "{}" and subtype "{}": '
-                        "{}".format(data_type, subtype, err)
-                    )
-                    return False
+            if data_type == "json":
+                self.validate_json(dtype_taxonomy)
+            else:
+                for subtype, subtype_taxonomy in dtype_taxonomy.items():
+                    try:
+                        self.validate_taxonomy(subtype_taxonomy)
+                    except JsonSchemaValidationError as err:
+                        self.logger.error(
+                            "{}: Validation error occurred. Error: "
+                            'while validating JSON schema for type "{}" '
+                            'and subtype "{}: {}'.format(
+                                self.log_prefix, data_type, subtype, err
+                            )
+                        )
+                        return False
         return True
 
     def validate_qradar_map(self, mappings):
@@ -144,7 +178,8 @@ class QRadarValidator(object):
             mappings: the JSON string to be validated
 
         Returns:
-            Whether the provided value is valid or not. True in case of valid value, False otherwise
+            Whether the provided value is valid or not.
+            True in case of valid value, False otherwise
         """
         if mappings is None:
             return False
@@ -153,8 +188,8 @@ class QRadarValidator(object):
                 return True
         except Exception as err:
             self.logger.error(
-                "QRadar Plugin: Validation error occurred. Error: {}".format(
-                    str(err)
+                "{}: Validation error occurred. Error: {}".format(
+                    self.log_prefix, err
                 )
             )
 
@@ -167,7 +202,8 @@ class QRadarValidator(object):
             valid_extensions: the CSV string to be validated
 
         Returns:
-            Whether the provided value is valid or not. True in case of valid value, False otherwise
+            Whether the provided value is valid or not.
+            True in case of valid value, False otherwise
         """
         try:
             csviter = csv.DictReader(
